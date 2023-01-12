@@ -1263,3 +1263,17 @@ export function evalValue<T = any>(rawValue: string): T {
   `)
   return fn()
 }
+
+export interface Deferred<T = void> {
+  promise: Promise<T>
+  resolve: (value: T) => void
+}
+
+export function makeDeferred<T = void>(): Deferred<T> {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((_resolve) => (resolve = _resolve))
+  return {
+    promise,
+    resolve,
+  }
+}

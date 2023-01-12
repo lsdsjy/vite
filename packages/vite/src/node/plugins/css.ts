@@ -33,6 +33,8 @@ import {
 } from '../constants'
 import type { ResolvedConfig } from '../config'
 import type { Plugin } from '../plugin'
+import type {
+  Deferred} from '../utils';
 import {
   arrayEqual,
   asyncReplace,
@@ -45,6 +47,7 @@ import {
   isExternalUrl,
   isObject,
   joinUrlSegments,
+  makeDeferred,
   normalizePath,
   parseRequest,
   processSrcSet,
@@ -319,6 +322,9 @@ export function cssPostPlugin(config: ResolvedConfig): Plugin {
   let outputToExtractedCSSMap: Map<NormalizedOutputOptions, string>
   let hasEmitted = false
 
+  // keep track of which chunks' css have been collected
+  const collected: Record<string, Deferred> = {}
+
   const rollupOptionsOutput = config.build.rollupOptions.output
   const assetFileNames = (
     Array.isArray(rollupOptionsOutput)
@@ -460,6 +466,7 @@ export function cssPostPlugin(config: ResolvedConfig): Plugin {
     },
 
     async renderChunk(code, chunk, opts) {
+      collected[chunk.fileName] = collected[chunk.fileName] ?? makeDeferred()
       let chunkCSS = ''
       let isPureCssChunk = true
       const ids = Object.keys(chunk.modules)
@@ -477,6 +484,7 @@ export function cssPostPlugin(config: ResolvedConfig): Plugin {
       }
 
       if (!chunkCSS) {
+        collected[chunk.fileName].resolve()
         return null
       }
 
@@ -614,10 +622,21 @@ export function cssPostPlugin(config: ResolvedConfig): Plugin {
         chunkCSS = resolveAssetUrlsInCss(chunkCSS, cssBundleName)
         // finalizeCss is called for the aggregated chunk in generateBundle
 
-        outputToExtractedCSSMap.set(
-          opts,
-          (outputToExtractedCSSMap.get(opts) || '') + chunkCSS,
-        )
+        // wait until all imports have collected their css
+        const importsPromises: Promise<void>[] = []
+        if (chunk.imports.length > 0) {
+          for (const fileName of chunk.imports) {
+            collected[fileName] = collected[fileName] ?? makeDeferred()
+            importsPromises.push(collected[fileName].promise)
+          }
+        }
+        Promise.all(importsPromises).then(() => {
+          outputToExtractedCSSMap.set(
+            opts,
+            (outputToExtractedCSSMap.get(opts) || '') + chunkCSS,
+          )
+          collected[chunk.fileName].resolve()
+        })
       }
       return null
     },
