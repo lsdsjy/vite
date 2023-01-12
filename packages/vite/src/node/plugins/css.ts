@@ -33,8 +33,7 @@ import {
 } from '../constants'
 import type { ResolvedConfig } from '../config'
 import type { Plugin } from '../plugin'
-import type {
-  Deferred} from '../utils';
+import type { Deferred } from '../utils'
 import {
   arrayEqual,
   asyncReplace,
