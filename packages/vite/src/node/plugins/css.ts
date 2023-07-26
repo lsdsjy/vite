@@ -378,8 +378,12 @@ export function cssPostPlugin(config: ResolvedConfig): Plugin {
 
   // when there are multiple rollup outputs and extracting CSS, only emit once,
   // since output formats have no effect on the generated CSS.
-  let outputToExtractedCSSMap: Map<NormalizedOutputOptions, string>
   let hasEmitted = false
+  type ChunkCssRecord = {
+    css: string
+    imports: ChunkCssRecord[]
+  }
+  let chunkFileNameToRecord: Map<string, ChunkCssRecord>
 
   const rollupOptionsOutput = config.build.rollupOptions.output
   const assetFileNames = (
@@ -409,7 +413,8 @@ export function cssPostPlugin(config: ResolvedConfig): Plugin {
     buildStart() {
       // Ensure new caches for every build (i.e. rebuilding in watch mode)
       pureCssChunks = new Set<RenderedChunk>()
-      outputToExtractedCSSMap = new Map<NormalizedOutputOptions, string>()
+      // We need a fake root to collect all entries
+      chunkFileNameToRecord = new Map([['<root>', { css: '', imports: [] }]])
       hasEmitted = false
       emitTasks = []
     },
@@ -708,10 +713,23 @@ export function cssPostPlugin(config: ResolvedConfig): Plugin {
         chunkCSS = resolveAssetUrlsInCss(chunkCSS, cssBundleName)
         // finalizeCss is called for the aggregated chunk in generateBundle
 
-        outputToExtractedCSSMap.set(
-          opts,
-          (outputToExtractedCSSMap.get(opts) || '') + chunkCSS,
-        )
+        let record = chunkFileNameToRecord.get(chunk.fileName)
+        if (!record) {
+          record = { css: chunkCSS, imports: [] }
+          chunkFileNameToRecord.set(chunk.fileName, record)
+          chunkFileNameToRecord.get('<root>')!.imports.push(record)
+        }
+        record.css = chunkCSS
+
+        if (record.imports.length === 0) {
+          for (const fileName of chunk.imports) {
+            if (!chunkFileNameToRecord.has(fileName)) {
+              const newRecord = { css: '', imports: [] }
+              record.imports.push(newRecord)
+              chunkFileNameToRecord.set(fileName, newRecord)
+            }
+          }
+        }
       }
       return null
     },
@@ -792,7 +810,13 @@ export function cssPostPlugin(config: ResolvedConfig): Plugin {
         })
       }
 
-      let extractedCss = outputToExtractedCSSMap.get(opts)
+      function extractCss() {
+        function collect(chunk: ChunkCssRecord): string {
+          return chunk.imports.map(collect).join('') + chunk.css
+        }
+        return collect(chunkFileNameToRecord.get('<root>')!)
+      }
+      let extractedCss = extractCss()
       if (extractedCss && !hasEmitted) {
         hasEmitted = true
         extractedCss = await finalizeCss(extractedCss, true, config)
