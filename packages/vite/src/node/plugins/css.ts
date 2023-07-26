@@ -6,7 +6,6 @@ import glob from 'fast-glob'
 import postcssrc from 'postcss-load-config'
 import type {
   ExistingRawSourceMap,
-  NormalizedOutputOptions,
   OutputChunk,
   RenderedChunk,
   RollupError,
